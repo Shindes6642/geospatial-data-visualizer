@@ -1,0 +1,145 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Geospatial Data Visualizer</title>
+    <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+    <link rel="stylesheet" href="https://unpkg.com/leaflet.markercluster@1.4.1/dist/MarkerCluster.css" />
+    <link rel="stylesheet" href="https://unpkg.com/leaflet.markercluster@1.4.1/dist/MarkerCluster.Default.css" />
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&display=swap" rel="stylesheet">
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body { font-family: 'Inter', sans-serif; background: #0f0f23; color: white; }
+        .container { max-width: 1400px; margin: 0 auto; padding: 20px; }
+        .header { text-align: center; margin-bottom: 30px; }
+        .header h1 { font-size: 2.5rem; background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); -webkit-background-clip: text; -webkit-text-fill-color: transparent; }
+        .controls { background: rgba(255,255,255,0.05); backdrop-filter: blur(10px); border-radius: 16px; padding: 20px; margin-bottom: 20px; border: 1px solid rgba(255,255,255,0.1); }
+        .control-group { display: flex; gap: 15px; flex-wrap: wrap; align-items: center; }
+        .btn { padding: 10px 20px; border: none; border-radius: 8px; cursor: pointer; font-weight: 500; transition: all 0.3s; }
+        .btn-primary { background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); color: white; }
+        .btn-secondary { background: rgba(255,255,255,0.1); color: white; border: 1px solid rgba(255,255,255,0.2); }
+        .btn:hover { transform: translateY(-2px); box-shadow: 0 10px 25px rgba(0,0,0,0.3); }
+        #map { height: 600px; border-radius: 16px; box-shadow: 0 20px 40px rgba(0,0,0,0.3); }
+        .stats { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 20px; margin-top: 20px; }
+        .stat-card { background: rgba(255,255,255,0.05); padding: 20px; border-radius: 12px; border: 1px solid rgba(255,255,255,0.1); }
+        .stat-number { font-size: 2rem; font-weight: 700; color: #667eea; }
+        @media (max-width: 768px) { .control-group { flex-direction: column; align-items: stretch; } }
+    </style>
+    <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🗺️</text></svg>">
+
+</head>
+<body>
+    <div class="container">
+        <div class="header">
+            <h1>🗺️ Geospatial Data Visualizer</h1>
+            <p>Interactive maps with real-time earthquake data, weather stations, and analytics</p>
+        </div>
+        
+        <div class="controls">
+            <div class="control-group">
+                <select id="dataset">
+                    <option value="earthquakes">🌍 Earthquakes (USGS)</option>
+                    <option value="weather">🌤️ Weather Stations</option>
+                </select>
+                <input type="range" id="days" min="1" max="30" value="7" style="width: 150px;">
+                <span id="days-label">7 days</span>
+                <button class="btn btn-primary" onclick="loadData()">🔄 Refresh Data</button>
+                <button class="btn btn-secondary" onclick="toggleClustering()">📍 Toggle Clusters</button>
+            </div>
+        </div>
+        
+        <div id="map"></div>
+        
+        <div class="stats" id="stats" style="display: none;">
+            <div class="stat-card">
+                <div class="stat-number" id="total-count">-</div>
+                <div>Total Records</div>
+            </div>
+            <div class="stat-card">
+                <div class="stat-number" id="avg-value">-</div>
+                <div>Average Value</div>
+            </div>
+            <div class="stat-card">
+                <div class="stat-number" id="max-value">-</div>
+                <div>Maximum Value</div>
+            </div>
+        </div>
+    </div>
+
+    <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+    <script src="https://unpkg.com/leaflet.markercluster@1.4.1/dist/leaflet.markercluster.js"></script>
+    <script>
+        let map, markers, clusterGroup;
+        
+        function initMap() {
+            map = L.map('map').setView([21.1458, 79.0882], 6); // Nagpur centered
+            
+            L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+                attribution: '© OpenStreetMap contributors'
+            }).addTo(map);
+            
+            clusterGroup = L.markerClusterGroup();
+            map.addLayer(clusterGroup);
+            
+            loadData();
+        }
+        
+        async function loadData() {
+            const dataset = document.getElementById('dataset').value;
+            const days = document.getElementById('days').value;
+            
+            document.getElementById('days-label').textContent = days + ' days';
+            
+            // Clear existing markers
+            clusterGroup.clearLayers();
+            
+            try {
+                const response = await fetch(`/api/${dataset}?days=${days}`);
+                const data = await response.json();
+                
+                data.forEach(item => {
+                    const marker = L.marker([item.lat, item.lng])
+                        .bindPopup(`
+                            <b>${item.title || item.name}</b><br>
+                            Magnitude: ${item.magnitude || item.temp}°C<br>
+                            Lat/Lng: ${item.lat.toFixed(4)}, ${item.lng.toFixed(4)}<br>
+                            Time: ${new Date(item.time || 0).toLocaleString()}
+                        `);
+                    
+                    clusterGroup.addLayer(marker);
+                });
+                
+                updateStats(dataset, data);
+                document.getElementById('stats').style.display = 'grid';
+                
+            } catch (error) {
+                console.error('Error loading data:', error);
+            }
+        }
+        
+        function updateStats(dataset, data) {
+            if (dataset === 'earthquakes' && data.length > 0) {
+                const magnitudes = data.map(d => d.magnitude).filter(m => m);
+                document.getElementById('total-count').textContent = data.length;
+                document.getElementById('avg-value').textContent = magnitudes.reduce((a,b)=>a+b)/magnitudes.length?.toFixed(1);
+                document.getElementById('max-value').textContent = Math.max(...magnitudes).toFixed(1);
+            }
+        }
+        
+        function toggleClustering() {
+            if (map.hasLayer(clusterGroup)) {
+                map.removeLayer(clusterGroup);
+            } else {
+                map.addLayer(clusterGroup);
+            }
+        }
+        
+        // Event listeners
+        document.getElementById('dataset').addEventListener('change', loadData);
+        document.getElementById('days').addEventListener('input', loadData);
+        
+        initMap();
+    </script>
+</body>
+</html>
